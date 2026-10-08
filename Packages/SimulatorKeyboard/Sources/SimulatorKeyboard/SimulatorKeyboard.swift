@@ -93,6 +93,9 @@ public actor SimulatorKeyboard {
             }
             if down { heldKeys[device, default: []].insert(usage) }
             else { heldKeys[device]?.remove(usage) }
+            // CoreDevice returns before the guest applies modifier state.
+            // Pace replies so an immediate letter cannot overtake Shift/Command.
+            try? await Task.sleep(for: .milliseconds(30))
             return true
         } catch { return false }
     }

@@ -90,32 +90,41 @@ final class DeviceHubTests: XCTestCase {
         XCTAssertEqual((result?["android"] as? [[String: Any]])?.count, 1)
     }
 
-    func testWebKitKeyboardBridgeReconcilesShiftAndReleasesItWhenFocusLeaves() async throws {
+    func testWebKitKeyboardBridgeRepairsKeyStateAcrossModifiersAndFocusChanges() async throws {
         let loaded = expectation(description: "Modifier page loaded")
         let keys = expectation(description: "Modifier keys delivered")
-        keys.expectedFulfillmentCount = 9
+        keys.expectedFulfillmentCount = 22
         let recorder = KeyboardRecorder(loaded: loaded, keys: keys)
         let browser = keyboardBrowser(recorder)
         defer { browser.configuration.userContentController.removeScriptMessageHandler(forName: "flunnerKeyboard") }
         browser.loadHTMLString("<div role='application' tabindex='0' id='screen'></div>", baseURL: nil)
         await fulfillment(of: [loaded], timeout: 10)
-        _ = try await browser.evaluateJavaScript("""
-        (() => {
+        _ = try await browser.callAsyncJavaScript("""
           const ios = new WebSocket('ws://127.0.0.1:3400/vendor/serve-sim/helper/6D6E0A19-F084-46BF-B47F-45F4BF96454A/ws');
           const screen = document.getElementById('screen');
           for (const phase of ['keydown','keyup']) screen.addEventListener(phase, e => {
-            ios.send(packet(6,{type:phase === 'keydown' ? 'down' : 'up',usage:e.code === 'ShiftLeft' ? 225 : 4}));
+            // Native WebKit dispatch can run a microtask checkpoint between
+            // the document capture listener and React's root listener.
+            queueMicrotask(() => ios.send(packet(6,{type:phase === 'keydown' ? 'down' : 'up',usage:e.code === 'ShiftLeft' ? 225 : 4})));
           });
-          const key = (type,code,shiftKey) => screen.dispatchEvent(new KeyboardEvent(type,{code,shiftKey,bubbles:true}));
-          key('keydown','KeyA',true); key('keyup','KeyA',false);
-          key('keydown','ShiftLeft',true); key('keyup','ShiftLeft',false);
-          key('keydown','KeyA',true);
+          const key = async (type,code,shiftKey,metaKey=false) => {
+            screen.dispatchEvent(new KeyboardEvent(type,{code,shiftKey,metaKey,bubbles:true}));
+            await Promise.resolve();
+          };
+          await key('keydown','KeyA',true); await key('keyup','KeyA',false);
+          await key('keydown','ShiftLeft',true); await key('keyup','ShiftLeft',false);
+          await key('keydown','KeyA',true);
           screen.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));
-        })();
-        """)
+          // A fresh physical press repairs a keyup dropped by the host.
+          await key('keydown','KeyA',false); await key('keydown','KeyA',false); await key('keyup','KeyA',false);
+          // Command+A may lose its letter keyup before a subsequent Shift+A.
+          await key('keydown','KeyA',false,true);
+          await key('keydown','KeyA',true); await key('keyup','KeyA',false);
+          return true;
+        """, arguments: [:], in: nil, contentWorld: .page)
         await fulfillment(of: [keys], timeout: 10)
-        XCTAssertEqual(recorder.events.map { $0["usage"] as? Int }, [225,4,4,225,225,225,225,4,225])
-        XCTAssertEqual(recorder.events.map { $0["phase"] as? String }, ["down","down","up","up","down","up","down","down","up"])
+        XCTAssertEqual(recorder.events.map { $0["usage"] as? Int }, [225,4,4,225,225,225,225,4,225,4, 4,4,4,4, 227,4,4,227,225,4,4,225])
+        XCTAssertEqual(recorder.events.map { $0["phase"] as? String }, ["down","down","up","up","down","up","down","down","up","up", "down","up","down","up", "down","down","up","up","down","down","up","up"])
     }
 
     private func keyboardBrowser(_ recorder: KeyboardRecorder) -> WKWebView {
@@ -259,7 +268,7 @@ private final class KeyboardRecorder: NSObject, WKScriptMessageHandlerWithReply,
 
     init(loaded: XCTestExpectation, keys: XCTestExpectation) { self.loaded = loaded; self.keys = keys }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loaded.fulfill() }
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         guard let event = message.body as? [String: Any] else { replyHandler(false, nil); return }
         events.append(event)
         replyHandler(handled(event), nil)
