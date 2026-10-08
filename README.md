@@ -53,6 +53,7 @@ Agents can also connect over **Model Context Protocol (MCP)** to the *running* w
 - 📱 **Device & Emulator Management** — Automatic detection and launching of iOS Simulators, Android Virtual Devices (AVDs), macOS desktop targets, and Chrome web instances via Flutter daemon.
 - 🧬 **DartNative Projects** — [DartNative](https://dartnative.com) apps are detected automatically (a `dartnative` dependency in `pubspec.yaml`, or `dn_plugins.lock`) and marked **DN** in the sidebar. Runs, hot reload, Pub Get, Clean, SDK info and terminal commands go through the `dn` CLI instead of `flutter`; web and desktop build commands are hidden because DartNative targets iOS and Android.
 - 🍎 **Xcode 27 Device Hub** — *Open iOS Simulator* opens Device Hub on Xcode 27 and later (which replaced `Simulator.app`) and falls back to `Simulator.app` on older Xcode versions.
+- 📲 **Embedded Device Preview** — Interact with live iOS simulators and Android emulators beside the console. Resize the pane, tap, swipe, type, and save screenshots without switching apps. Powered by the standalone [Expo Device Hub](https://github.com/expo/expo-device-hub) preview engine, with no Expo project required.
 - 🌿 **Git & Source Control Sheet** — Native source control dialog to stage files, inspect unified diffs, compose commits, switch branches, and push without leaving the workbench.
 - 🛠️ **Project Maintenance & SDK Diagnostics** — One-click `flutter pub get`, `flutter clean`, integrated `flutter doctor` diagnostics viewer, and quick access to Flutter / Dart documentation.
 - 🎨 **Purpose-Built Design** — Native macOS HIG adherence, custom copper/graphite workbench aesthetics, light/dark appearance support, and custom font scaling.
@@ -139,8 +140,19 @@ open Flunner.xcodeproj
 | `R` | Hot Restart |
 | `⌘ .` | Stop Running Session |
 | `⌃ \`` | Toggle Integrated Terminal Pane |
+| `⌥ ⌘ 3` | Toggle Device Preview |
 | `⌘ 2` | Open Source Control Sheet |
 | `⌘ ,` | Settings |
+
+### Device preview
+
+Click the phone button in the toolbar, or choose **Device → Toggle Device Preview**. The pane sits beside the console in wide windows and above it in narrow windows; drag the divider to resize it. Its sidebar lists the available simulators and emulators, including controls to boot devices. The expand button opens a larger in-app view with device options.
+
+The preview needs **Node.js with npm**, plus Xcode for iOS or the Android SDK for Android. The first opening downloads a pinned `expo-device-hub` engine into `~/Library/Application Support/Flunner/DeviceHub/0.12.0`. Subsequent openings use the cached installation. Flunner detects common Node.js locations, login-shell installations, and `ANDROID_HOME` / `ANDROID_SDK_ROOT` (with `~/Library/Android/sdk` as the default).
+
+The preview server binds only `127.0.0.1` on an automatically assigned port. Hiding the pane or quitting Flunner stops its server and releases the preview connections while leaving devices running. Multiple Flunner windows share the server until the last preview closes. Preview selection is independent of the Flutter run target, so you can watch another device without changing a running session.
+
+Click the device screen to send keyboard input; press **Shift + Escape** to return keyboard control to Flunner. **Save** opens a native save dialog. The workbench appearance follows Flunner's theme; the preview's **Theme** control changes the device's appearance.
 
 ---
 

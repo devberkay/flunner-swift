@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		935F18C603956317C46AB84C /* DeviceHubTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEACE50256709DCD4160FFDF /* DeviceHubTests.swift */; };
+		B9626B6476D5C63ADEB100B8 /* DevicePreviewPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0731A8010E2D0C93AA0E410 /* DevicePreviewPane.swift */; };
+		B6E40D989AF993FC95BCDF12 /* DeviceHubWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7E8C000833A4B73B8AECE3 /* DeviceHubWebView.swift */; };
+		7F6262F59F7F14463865BABF /* DeviceHubService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE30235B98C2B1B315E1BEAB /* DeviceHubService.swift */; };
 		E8EA987EA4DA1AD7EEA19D8C /* IOSSimulatorLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8392CB99A5D9091AFB206FBD /* IOSSimulatorLauncherTests.swift */; };
 		CE082FB6E3D7D3673AA8D3B9 /* ProjectToolchainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4DA3ACCD61024E35F616CE3 /* ProjectToolchainTests.swift */; };
 		A559D60CEE335E4A22EA4F97 /* IOSSimulatorLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7451A105C0225C846F2CD918 /* IOSSimulatorLauncher.swift */; };
@@ -84,6 +88,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		EEACE50256709DCD4160FFDF /* DeviceHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeviceHubTests.swift; path = Tests/FlunnerTests/DeviceHubTests.swift; sourceTree = SOURCE_ROOT; };
+		C0731A8010E2D0C93AA0E410 /* DevicePreviewPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DevicePreviewPane.swift; path = Sources/Flunner/Views/DevicePreview/DevicePreviewPane.swift; sourceTree = SOURCE_ROOT; };
+		4F7E8C000833A4B73B8AECE3 /* DeviceHubWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeviceHubWebView.swift; path = Sources/Flunner/Views/DevicePreview/DeviceHubWebView.swift; sourceTree = SOURCE_ROOT; };
+		BE30235B98C2B1B315E1BEAB /* DeviceHubService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeviceHubService.swift; path = Sources/Flunner/Services/DevicePreview/DeviceHubService.swift; sourceTree = SOURCE_ROOT; };
 		8392CB99A5D9091AFB206FBD /* IOSSimulatorLauncherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSSimulatorLauncherTests.swift; sourceTree = "<group>"; };
 		E4DA3ACCD61024E35F616CE3 /* ProjectToolchainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectToolchainTests.swift; sourceTree = "<group>"; };
 		7451A105C0225C846F2CD918 /* IOSSimulatorLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSSimulatorLauncher.swift; sourceTree = "<group>"; };
@@ -177,6 +185,7 @@
 		163368076EA29A1793FDB790 /* FlunnerTests */ = {
 			isa = PBXGroup;
 			children = (
+				EEACE50256709DCD4160FFDF /* DeviceHubTests.swift */,
 				8392CB99A5D9091AFB206FBD /* IOSSimulatorLauncherTests.swift */,
 				E4DA3ACCD61024E35F616CE3 /* ProjectToolchainTests.swift */,
 				BD49A456069BF558A32A73E0 /* AgentMCPConfigWriterTests.swift */,
@@ -233,6 +242,7 @@
 		405813ABBE2E039DE83AF9D0 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				BE30235B98C2B1B315E1BEAB /* DeviceHubService.swift */,
 				7451A105C0225C846F2CD918 /* IOSSimulatorLauncher.swift */,
 				40C6FCAC62FF4C65A58410B6 /* FlutterAppIconService.swift */,
 				C231A1CB01459A0CD8218A83 /* FlutterDaemon.swift */,
@@ -287,6 +297,8 @@
 		E35DC6037FBDE4079A57B2CC /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				C0731A8010E2D0C93AA0E410 /* DevicePreviewPane.swift */,
+				4F7E8C000833A4B73B8AECE3 /* DeviceHubWebView.swift */,
 				1B7CF391C40BCCE3D0A8E402 /* ContentView.swift */,
 				D50F68ED0BA13F249B2938A6 /* LegacySidebarToolbarItemCleanup.swift */,
 				F4695A6367637E968EBFFD2B /* Settings */,
@@ -431,6 +443,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				935F18C603956317C46AB84C /* DeviceHubTests.swift in Sources */,
 				E8EA987EA4DA1AD7EEA19D8C /* IOSSimulatorLauncherTests.swift in Sources */,
 				CE082FB6E3D7D3673AA8D3B9 /* ProjectToolchainTests.swift in Sources */,
 				E1FE6687328F4C5940A17710 /* AgentMCPConfigWriterTests.swift in Sources */,
@@ -453,6 +466,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B9626B6476D5C63ADEB100B8 /* DevicePreviewPane.swift in Sources */,
+				B6E40D989AF993FC95BCDF12 /* DeviceHubWebView.swift in Sources */,
+				7F6262F59F7F14463865BABF /* DeviceHubService.swift in Sources */,
 				A559D60CEE335E4A22EA4F97 /* IOSSimulatorLauncher.swift in Sources */,
 				BCEC483DFE7CC4D23667A9D8 /* ProjectToolchain.swift in Sources */,
 				5BFFEA47A19A53F645423D75 /* AboutView.swift in Sources */,
