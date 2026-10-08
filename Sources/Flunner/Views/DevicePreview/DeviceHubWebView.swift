@@ -87,7 +87,7 @@ struct DeviceHubWebView: NSViewRepresentable {
 
         init(onError: @escaping (String?) -> Void) { self.onError = onError }
 
-        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
             guard message.name == "flunnerKeyboard", message.frameInfo.isMainFrame,
                   let origin = message.frameInfo.request.url,
                   Self.isLocalNavigation(origin, origin: allowedOrigin),
@@ -231,7 +231,9 @@ struct DeviceHubWebView: NSViewRepresentable {
       for (const phase of ['keydown', 'keyup']) document.addEventListener(phase, event => {
         if (!event.target.closest?.('[role="application"]')) return;
         keyboardEvent = event;
-        queueMicrotask(() => { if (keyboardEvent === event) keyboardEvent = null; });
+        // A native event runs a microtask checkpoint between DOM listeners.
+        // Keep its flags through React's handler on the next propagation step.
+        setTimeout(() => { if (keyboardEvent === event) keyboardEvent = null; }, 0);
       }, true);
       const packet = event => {
         const json = new TextEncoder().encode(JSON.stringify(event));
@@ -240,8 +242,14 @@ struct DeviceHubWebView: NSViewRepresentable {
         return data;
       };
       const enqueue = (socket, device, event, data = packet(event)) => {
+        const state = sockets.get(socket);
+        if (state) {
+          if (event.type === 'down') state.pressed.add(event.usage);
+          else state.pressed.delete(event.usage);
+        }
         const fallback = () => { if (socket.readyState === WebSocket.OPEN) send.call(socket, data); };
         const operation = (queues.get(socket) || Promise.resolve()).then(async () => {
+          if (socket.readyState !== WebSocket.OPEN && event.type === 'down') return;
           try {
             const handled = await window.webkit.messageHandlers.flunnerKeyboard.postMessage({
               device, usage: event.usage, phase: event.type
@@ -251,16 +259,16 @@ struct DeviceHubWebView: NSViewRepresentable {
         });
         queues.set(socket, operation);
       };
-      const releaseModifiers = socket => {
+      const releaseKeys = socket => {
         const state = sockets.get(socket);
         if (!state) return;
-        for (const usage of state.held) enqueue(socket, state.device, {type:'up', usage});
+        for (const usage of state.pressed) enqueue(socket, state.device, {type:'up', usage});
         state.held.clear();
       };
-      window.addEventListener('blur', () => { for (const socket of sockets.keys()) releaseModifiers(socket); });
+      window.addEventListener('blur', () => { for (const socket of sockets.keys()) releaseKeys(socket); });
       document.addEventListener('focusout', event => {
         if (event.target.closest?.('[role="application"]'))
-          for (const socket of sockets.keys()) releaseModifiers(socket);
+          for (const socket of sockets.keys()) releaseKeys(socket);
       });
       WebSocket.prototype.send = function(data) {
         let event, device;
@@ -277,18 +285,34 @@ struct DeviceHubWebView: NSViewRepresentable {
         } catch { return send.call(this, data); }
         let state = sockets.get(this);
         if (!state) {
-          state = {device, held:new Set()}; sockets.set(this, state);
-          this.addEventListener('close', () => { releaseModifiers(this); sockets.delete(this); }, {once:true});
+          state = {device, held:new Set(), pressed:new Set()}; sockets.set(this, state);
+          this.addEventListener('close', () => { releaseKeys(this); sockets.delete(this); }, {once:true});
         }
         const isModifier = event.usage >= 224 && event.usage <= 231;
+        const releaseShortcutKeys = () => {
+          for (const usage of state.pressed) if (usage < 224)
+            enqueue(this, device, {type:'up', usage});
+        };
+        // macOS command equivalents can omit the letter's keyup. Finish the
+        // old shortcut before releasing its modifier or pressing that key again.
+        if (event.type === 'down' && keyboardEvent && !keyboardEvent.repeat && state.pressed.has(event.usage))
+          enqueue(this, device, {type:'up', usage:event.usage});
+        if (isModifier && event.type === 'up' && [224,228,227,231].includes(event.usage)) releaseShortcutKeys();
         const syncModifiers = () => {
           if (!keyboardEvent || isModifier) return;
+          // Release the previous chord before pressing its replacement.
           for (const [left, right, flag] of modifiers) {
             const held = [left,right].filter(usage => state.held.has(usage));
-            if (keyboardEvent[flag] && !held.length) {
+            if (!keyboardEvent[flag] && held.length) {
+              if (flag === 'metaKey' || flag === 'ctrlKey') releaseShortcutKeys();
+              for (const usage of held) {
+                state.held.delete(usage); enqueue(this, device, {type:'up', usage});
+              }
+            }
+          }
+          for (const [left, right, flag] of modifiers) {
+            if (keyboardEvent[flag] && !state.held.has(left) && !state.held.has(right)) {
               state.held.add(left); enqueue(this, device, {type:'down', usage:left});
-            } else if (!keyboardEvent[flag]) for (const usage of held) {
-              state.held.delete(usage); enqueue(this, device, {type:'up', usage});
             }
           }
         };
