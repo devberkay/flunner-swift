@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import WebKit
+import SimulatorKeyboard
 
 /// Keeps the same browser and device selection when the native split changes
 /// from horizontal to vertical. Each workspace window owns a separate session.
@@ -18,6 +19,8 @@ final class DeviceHubWebSession: ObservableObject {
         webView?.navigationDelegate = nil
         webView?.uiDelegate = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "flunnerFileExport")
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "flunnerKeyboard")
+        Task { await coordinator.keyboard.releaseAll() }
         webView = nil
         coordinator.loadedURL = nil
         coordinator.reloadID = nil
@@ -27,7 +30,8 @@ final class DeviceHubWebSession: ObservableObject {
 
 /// Uses the upstream input/accessibility implementation rather than recreating
 /// simulator gestures. Styling targets semantic elements and stable test IDs
-/// in the pinned Device Hub release; it does not modify the streaming protocol.
+/// in the pinned Device Hub release. iOS keys use a guarded native transport;
+/// touch, video, and Android input keep the upstream streaming protocol.
 struct DeviceHubWebView: NSViewRepresentable {
     let url: URL
     @ObservedObject var session: DeviceHubWebSession
@@ -43,6 +47,8 @@ struct DeviceHubWebView: NSViewRepresentable {
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.userContentController.add(context.coordinator, name: "flunnerFileExport")
+        configuration.userContentController.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "flunnerKeyboard")
+        configuration.userContentController.addUserScript(WKUserScript(source: Self.keyboardBridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: Self.embedStyle(compact: compact), injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
@@ -60,6 +66,7 @@ struct DeviceHubWebView: NSViewRepresentable {
         if context.coordinator.loadedURL != url || context.coordinator.reloadID != session.reloadID {
             context.coordinator.loadedURL = url
             context.coordinator.reloadID = session.reloadID
+            Task { await context.coordinator.keyboard.releaseAll() }
             webView.load(URLRequest(url: url))
         }
     }
@@ -70,7 +77,8 @@ struct DeviceHubWebView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
+        let keyboard = SimulatorKeyboard()
         var loadedURL: URL?
         var allowedOrigin: URL?
         var reloadID: UUID?
@@ -78,6 +86,25 @@ struct DeviceHubWebView: NSViewRepresentable {
         private var downloads: [ObjectIdentifier: WKDownload] = [:]
 
         init(onError: @escaping (String?) -> Void) { self.onError = onError }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+            guard message.name == "flunnerKeyboard", message.frameInfo.isMainFrame,
+                  let origin = message.frameInfo.request.url,
+                  Self.isLocalNavigation(origin, origin: allowedOrigin),
+                  let event = Self.decodeKey(message.body) else { replyHandler(false, nil); return }
+            Task {
+                let handled = await keyboard.send(device: event.device, usage: event.usage, down: event.down)
+                replyHandler(handled, nil)
+            }
+        }
+
+        static func decodeKey(_ body: Any) -> (device: String, usage: UInt32, down: Bool)? {
+            guard let body = body as? [String: Any], let device = body["device"] as? String,
+                  UUID(uuidString: device) != nil, let usage = body["usage"] as? Int,
+                  (0...255).contains(usage), let phase = body["phase"] as? String,
+                  phase == "down" || phase == "up" else { return nil }
+            return (device, UInt32(usage), phase == "down")
+        }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard message.name == "flunnerFileExport", message.frameInfo.isMainFrame else { return }
@@ -190,6 +217,93 @@ struct DeviceHubWebView: NSViewRepresentable {
             alert.beginSheetModal(for: window) { response in completionHandler(response == .alertFirstButtonReturn) }
         }
     }
+
+    // Xcode 27's standard iPhones silently drop legacy Indigo keyboard events.
+    // Keep upstream's focus/key mapping, but deliver iOS key packets through
+    // CoreDevice. Each socket preserves ordering and falls back when unavailable.
+    static let keyboardBridge = #"""
+    (() => {
+      const send = WebSocket.prototype.send;
+      const queues = new WeakMap();
+      const sockets = new Map();
+      const modifiers = [[224,228,'ctrlKey'], [225,229,'shiftKey'], [226,230,'altKey'], [227,231,'metaKey']];
+      let keyboardEvent;
+      for (const phase of ['keydown', 'keyup']) document.addEventListener(phase, event => {
+        if (!event.target.closest?.('[role="application"]')) return;
+        keyboardEvent = event;
+        queueMicrotask(() => { if (keyboardEvent === event) keyboardEvent = null; });
+      }, true);
+      const packet = event => {
+        const json = new TextEncoder().encode(JSON.stringify(event));
+        const data = new Uint8Array(json.length + 1);
+        data[0] = 6; data.set(json, 1);
+        return data;
+      };
+      const enqueue = (socket, device, event, data = packet(event)) => {
+        const fallback = () => { if (socket.readyState === WebSocket.OPEN) send.call(socket, data); };
+        const operation = (queues.get(socket) || Promise.resolve()).then(async () => {
+          try {
+            const handled = await window.webkit.messageHandlers.flunnerKeyboard.postMessage({
+              device, usage: event.usage, phase: event.type
+            });
+            if (!handled) fallback();
+          } catch { fallback(); }
+        });
+        queues.set(socket, operation);
+      };
+      const releaseModifiers = socket => {
+        const state = sockets.get(socket);
+        if (!state) return;
+        for (const usage of state.held) enqueue(socket, state.device, {type:'up', usage});
+        state.held.clear();
+      };
+      window.addEventListener('blur', () => { for (const socket of sockets.keys()) releaseModifiers(socket); });
+      document.addEventListener('focusout', event => {
+        if (event.target.closest?.('[role="application"]'))
+          for (const socket of sockets.keys()) releaseModifiers(socket);
+      });
+      WebSocket.prototype.send = function(data) {
+        let event, device;
+        try {
+          const url = new URL(this.url);
+          if (!url.pathname.includes('/serve-sim/helper/')) return send.call(this, data);
+          const bytes = data instanceof ArrayBuffer ? new Uint8Array(data)
+            : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : null;
+          if (!bytes || bytes[0] !== 6) return send.call(this, data);
+          event = JSON.parse(new TextDecoder().decode(bytes.subarray(1)));
+          device = url.searchParams.get('device') || url.pathname.match(/helper\/([^/]+)\/ws$/)?.[1];
+          if (!device || !Number.isInteger(event.usage) || event.usage < 0 || event.usage > 255
+              || !['down', 'up'].includes(event.type)) return send.call(this, data);
+        } catch { return send.call(this, data); }
+        let state = sockets.get(this);
+        if (!state) {
+          state = {device, held:new Set()}; sockets.set(this, state);
+          this.addEventListener('close', () => { releaseModifiers(this); sockets.delete(this); }, {once:true});
+        }
+        const isModifier = event.usage >= 224 && event.usage <= 231;
+        const syncModifiers = () => {
+          if (!keyboardEvent || isModifier) return;
+          for (const [left, right, flag] of modifiers) {
+            const held = [left,right].filter(usage => state.held.has(usage));
+            if (keyboardEvent[flag] && !held.length) {
+              state.held.add(left); enqueue(this, device, {type:'down', usage:left});
+            } else if (!keyboardEvent[flag]) for (const usage of held) {
+              state.held.delete(usage); enqueue(this, device, {type:'up', usage});
+            }
+          }
+        };
+        // WebKit can report modifiers only on the letter's KeyboardEvent.
+        // Reconcile those flags without duplicating actual modifier packets.
+        if (event.type === 'down') syncModifiers();
+        enqueue(this, device, event, data);
+        if (isModifier) {
+          if (event.type === 'down') state.held.add(event.usage);
+          else state.held.delete(event.usage);
+        }
+        if (event.type === 'up') syncModifiers();
+      };
+    })();
+    """#
 
     static func embedStyle(compact: Bool) -> String {
         // The real device is the focal object. Keep the surrounding chrome quiet

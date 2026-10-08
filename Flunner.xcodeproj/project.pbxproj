@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A68336292D2931589877CE01 /* SimulatorKeyboard in Frameworks */ = {isa = PBXBuildFile; productRef = A68336292D2931589877CE02 /* SimulatorKeyboard */; };
 		935F18C603956317C46AB84C /* DeviceHubTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEACE50256709DCD4160FFDF /* DeviceHubTests.swift */; };
 		B9626B6476D5C63ADEB100B8 /* DevicePreviewPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0731A8010E2D0C93AA0E410 /* DevicePreviewPane.swift */; };
 		B6E40D989AF993FC95BCDF12 /* DeviceHubWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7E8C000833A4B73B8AECE3 /* DeviceHubWebView.swift */; };
@@ -158,6 +159,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C466FF331A876D4E53EE5E9C /* SwiftTerm in Frameworks */,
+				A68336292D2931589877CE01 /* SimulatorKeyboard in Frameworks */,
 				4E9E4F47BC4EF6512A4E5FF0 /* MCP in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -372,6 +374,7 @@
 			packageProductDependencies = (
 				3D4EEC9B92CEB24A5E32B645 /* SwiftTerm */,
 				95A024D3BE15E105E3BF4933 /* MCP */,
+				A68336292D2931589877CE02 /* SimulatorKeyboard */,
 			);
 			productName = Flunner;
 			productReference = 7BBFDDC4D67135CAB628B526 /* Flunner.app */;
@@ -401,6 +404,7 @@
 			mainGroup = 2B7BD9FF1DF31A98A58BABCE;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A68336292D2931589877CE03 /* SimulatorKeyboard */,
 				D67ECEA5277B4D1E5A35D69F /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				E0A03535EAA1216565CB6339 /* XCRemoteSwiftPackageReference "swift-sdk" */,
 			);
@@ -746,6 +750,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		A68336292D2931589877CE03 /* SimulatorKeyboard */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/SimulatorKeyboard;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		D67ECEA5277B4D1E5A35D69F /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -766,6 +777,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A68336292D2931589877CE02 /* SimulatorKeyboard */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A68336292D2931589877CE03 /* SimulatorKeyboard */;
+			productName = SimulatorKeyboard;
+		};
 		3D4EEC9B92CEB24A5E32B645 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D67ECEA5277B4D1E5A35D69F /* XCRemoteSwiftPackageReference "SwiftTerm" */;

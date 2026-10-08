@@ -42,6 +42,104 @@ final class DeviceHubTests: XCTestCase {
         XCTAssertNil(DeviceHubWebView.Coordinator.decodeExport(["filename": "screenshot.png", "data": "data:image/png;base64,broken"]))
     }
 
+    func testKeyboardBridgeRejectsInvalidDeviceAndKeyPackets() {
+        let device = UUID().uuidString
+        XCTAssertEqual(DeviceHubWebView.Coordinator.decodeKey(["device": device, "usage": 225, "phase": "down"])?.usage, 225)
+        XCTAssertEqual(DeviceHubWebView.Coordinator.decodeKey(["device": device, "usage": 4, "phase": "up"])?.down, false)
+        for packet: [String: Any] in [
+            ["device": "not-a-simulator", "usage": 4, "phase": "down"],
+            ["device": device, "usage": -1, "phase": "down"],
+            ["device": device, "usage": 256, "phase": "down"],
+            ["device": device, "usage": 4, "phase": "repeat"]
+        ] { XCTAssertNil(DeviceHubWebView.Coordinator.decodeKey(packet)) }
+    }
+
+    func testWebKitKeyboardBridgeOrdersKeysAndFallsBackWithoutChangingOtherInput() async throws {
+        let loaded = expectation(description: "Keyboard page loaded")
+        let keys = expectation(description: "Ordered native keys")
+        keys.expectedFulfillmentCount = 4
+        let recorder = KeyboardRecorder(loaded: loaded, keys: keys)
+        recorder.handled = { $0["usage"] as? Int != 7 }
+        let browser = keyboardBrowser(recorder)
+        defer { browser.configuration.userContentController.removeScriptMessageHandler(forName: "flunnerKeyboard") }
+        browser.loadHTMLString("<div role='application' tabindex='0' id='screen'></div>", baseURL: nil)
+        await fulfillment(of: [loaded], timeout: 10)
+        let result = try await browser.callAsyncJavaScript("""
+        const device = '6D6E0A19-F084-46BF-B47F-45F4BF96454A';
+        const ios = new WebSocket('ws://127.0.0.1:3400/vendor/serve-sim/helper/ws?device=' + device);
+        const android = new WebSocket('ws://127.0.0.1:3400/serve-emu/ws');
+        ios.send(packet(6, {type:'down',usage:27}).buffer);
+        ios.send(packet(6, {type:'up',usage:27}));
+        ios.send(packet(6, {type:'down',usage:7}));
+        ios.send(packet(6, {type:'up',usage:7}));
+        ios.send(packet(3, {type:'begin',x:0.5,y:0.5}));
+        ios.send(packet(6, {type:'down',usage:999}));
+        android.send(packet(6, {type:'down',usage:4}));
+        for (let i=0; i<200 && ios.sent.length<4; i++) await new Promise(resolve => setTimeout(resolve,10));
+        return {ios:ios.sent.map(decode),android:android.sent.map(decode)};
+        """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+        await fulfillment(of: [keys], timeout: 10)
+        XCTAssertEqual(recorder.events.map { $0["phase"] as? String }, ["down", "up", "down", "up"])
+        XCTAssertEqual(recorder.events.map { $0["usage"] as? Int }, [27, 27, 7, 7])
+        let sent = result?["ios"] as? [[String: Any]]
+        XCTAssertEqual(sent?.count, 4)
+        XCTAssertEqual(sent?.first?["header"] as? Int, 3, "Touch packets retain the upstream transport.")
+        XCTAssertEqual(sent?.dropFirst().first?["usage"] as? Int, 999)
+        XCTAssertEqual(sent?.suffix(2).map { $0["type"] as? String }, ["down", "up"])
+        XCTAssertEqual(sent?.suffix(2).map { $0["usage"] as? Int }, [7, 7], "Unavailable native input falls back in order.")
+        XCTAssertEqual((result?["android"] as? [[String: Any]])?.count, 1)
+    }
+
+    func testWebKitKeyboardBridgeReconcilesShiftAndReleasesItWhenFocusLeaves() async throws {
+        let loaded = expectation(description: "Modifier page loaded")
+        let keys = expectation(description: "Modifier keys delivered")
+        keys.expectedFulfillmentCount = 9
+        let recorder = KeyboardRecorder(loaded: loaded, keys: keys)
+        let browser = keyboardBrowser(recorder)
+        defer { browser.configuration.userContentController.removeScriptMessageHandler(forName: "flunnerKeyboard") }
+        browser.loadHTMLString("<div role='application' tabindex='0' id='screen'></div>", baseURL: nil)
+        await fulfillment(of: [loaded], timeout: 10)
+        _ = try await browser.evaluateJavaScript("""
+        (() => {
+          const ios = new WebSocket('ws://127.0.0.1:3400/vendor/serve-sim/helper/6D6E0A19-F084-46BF-B47F-45F4BF96454A/ws');
+          const screen = document.getElementById('screen');
+          for (const phase of ['keydown','keyup']) screen.addEventListener(phase, e => {
+            ios.send(packet(6,{type:phase === 'keydown' ? 'down' : 'up',usage:e.code === 'ShiftLeft' ? 225 : 4}));
+          });
+          const key = (type,code,shiftKey) => screen.dispatchEvent(new KeyboardEvent(type,{code,shiftKey,bubbles:true}));
+          key('keydown','KeyA',true); key('keyup','KeyA',false);
+          key('keydown','ShiftLeft',true); key('keyup','ShiftLeft',false);
+          key('keydown','KeyA',true);
+          screen.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));
+        })();
+        """)
+        await fulfillment(of: [keys], timeout: 10)
+        XCTAssertEqual(recorder.events.map { $0["usage"] as? Int }, [225,4,4,225,225,225,225,4,225])
+        XCTAssertEqual(recorder.events.map { $0["phase"] as? String }, ["down","down","up","up","down","up","down","down","up"])
+    }
+
+    private func keyboardBrowser(_ recorder: KeyboardRecorder) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.userContentController.addScriptMessageHandler(recorder, contentWorld: .page, name: "flunnerKeyboard")
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+        window.WebSocket = class extends EventTarget {
+          static OPEN = 1;
+          constructor(url) { super(); this.url=url; this.readyState=1; this.sent=[]; }
+          send(data) { this.sent.push(Array.from(data instanceof ArrayBuffer ? new Uint8Array(data) : data)); }
+        };
+        window.packet = (header,event) => {
+          const json = new TextEncoder().encode(JSON.stringify(event));
+          const bytes = new Uint8Array(json.length+1); bytes[0]=header; bytes.set(json,1); return bytes;
+        };
+        window.decode = bytes => ({header:bytes[0],...JSON.parse(new TextDecoder().decode(new Uint8Array(bytes.slice(1))))});
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        configuration.userContentController.addUserScript(WKUserScript(source: DeviceHubWebView.keyboardBridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let browser = WKWebView(frame: .zero, configuration: configuration)
+        browser.navigationDelegate = recorder
+        return browser
+    }
+
     func testScreenshotExportAtomicallyReplacesTheApprovedFile() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("flunner-export-test-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -149,5 +247,22 @@ private final class ExportRecorder: NSObject, WKScriptMessageHandler, WKNavigati
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         body = message.body
         exported.fulfill()
+    }
+}
+
+@MainActor
+private final class KeyboardRecorder: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
+    let loaded: XCTestExpectation
+    let keys: XCTestExpectation
+    var events: [[String: Any]] = []
+    var handled: ([String: Any]) -> Bool = { _ in true }
+
+    init(loaded: XCTestExpectation, keys: XCTestExpectation) { self.loaded = loaded; self.keys = keys }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loaded.fulfill() }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+        guard let event = message.body as? [String: Any] else { replyHandler(false, nil); return }
+        events.append(event)
+        replyHandler(handled(event), nil)
+        keys.fulfill()
     }
 }

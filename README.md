@@ -152,6 +152,8 @@ The preview server binds only `127.0.0.1` on an automatically assigned port. Hid
 
 Click the device screen to send keyboard input; press **Shift + Escape** to return keyboard control to Flunner. **Save** opens a native save dialog. The workbench appearance follows Flunner's theme; the preview's **Theme** control changes the device's appearance.
 
+iOS keyboard events use Xcode's CoreDevice transport when available, including modifier and editing keys. This fixes simulators on Xcode 27 that silently ignore the older keyboard transport. The adapter loads private framework symbols at runtime and falls back to Device Hub's existing input path if the required capability is unavailable. Its source and Apache 2.0 attribution are in `Packages/SimulatorKeyboard`.
+
 ---
 
 ## 🤖 MCP Server
